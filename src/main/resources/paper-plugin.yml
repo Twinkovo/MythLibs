@@ -1,0 +1,5 @@
+name: MythLibs
+version: '1.0.0-SNAPSHOT'
+main: com.twinkovo.mythLibs.MythLibs
+api-version: '1.21'
+authors: [ Twinkovo ]
