@@ -3,6 +3,7 @@ package com.twinkovo.mythLibs.config
 import com.twinkovo.mythLibs.config.annotations.Config
 import com.twinkovo.mythLibs.config.annotations.ConfigSection
 import com.twinkovo.mythLibs.config.annotations.ConfigValue
+import com.twinkovo.mythLibs.config.migration.MigrationRegistry
 import com.twinkovo.mythLibs.utils.Logger
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.plugin.Plugin
@@ -26,6 +27,8 @@ import kotlin.reflect.full.memberProperties
  *    自动补全缺失的值
  * 4. Support for comments
  *    支持注释
+ * 5. Version control and migration
+ *    版本控制和迁移
  */
 object ConfigManager {
     private val configs = mutableMapOf<KClass<*>, Any>()
@@ -59,18 +62,83 @@ object ConfigManager {
         val file = getConfigFile(config)
         val yamlConfig = YamlConfiguration.loadConfiguration(file)
 
+        // Check and handle version migration
+        // 检查并处理版本迁移
+        handleVersionMigration(yamlConfig, config)
+
         // Create instance and load values
         // 创建实例并加载值
         val instance = configClass.constructors.first().call()
-        loadConfig(instance, yamlConfig)
-
-        // Save config to ensure all values are present
-        // 保存配置以确保所有值都存在
-        saveConfig(instance, yamlConfig)
-        yamlConfig.save(file)
+        if (loadConfig(instance, yamlConfig)) {
+            // Save if changes were made during loading
+            // 如果在加载过程中有更改则保存
+            saveConfig(instance, yamlConfig)
+            yamlConfig.save(file)
+        }
 
         configs[configClass] = instance
         return instance
+    }
+
+    /**
+     * Handles version migration for a configuration
+     * 处理配置的版本迁移
+     *
+     * @param yaml The configuration to migrate
+     *             要迁移的配置
+     * @param config The configuration annotation
+     *               配置注解
+     */
+    private fun handleVersionMigration(yaml: YamlConfiguration, config: Config) {
+        val currentVersion = yaml.getInt(config.versionKey, 1)
+        val targetVersion = config.version
+
+        if (currentVersion < targetVersion) {
+            // Create backup before migration
+            // 迁移前创建备份
+            createBackup(getConfigFile(config))
+
+            // Find and execute migration path
+            // 查找并执行迁移路径
+            val migrationPath = MigrationRegistry.findMigrationPath(currentVersion, targetVersion)
+            if (migrationPath != null) {
+                Logger.info("Migrating configuration '${config.name}' from version $currentVersion to $targetVersion")
+                
+                for (migration in migrationPath) {
+                    if (!migration.migrate(yaml)) {
+                        Logger.warn("Failed to migrate configuration '${config.name}' from version ${migration.fromVersion} to ${migration.toVersion}")
+                        return
+                    }
+                    Logger.info("Successfully migrated from version ${migration.fromVersion} to ${migration.toVersion}")
+                }
+                
+                // Update version in configuration
+                // 更新配置中的版本号
+                yaml.set(config.versionKey, targetVersion)
+            } else {
+                Logger.warn("No migration path found for configuration '${config.name}' from version $currentVersion to $targetVersion")
+            }
+        }
+    }
+
+    /**
+     * Creates a backup of a configuration file
+     * 创建配置文件的备份
+     *
+     * @param file The file to back up
+     *             要备份的文件
+     */
+    private fun createBackup(file: File) {
+        if (!file.exists()) return
+
+        val backupDir = File(file.parentFile, "backups")
+        backupDir.mkdirs()
+
+        val timestamp = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
+        val backupFile = File(backupDir, "${file.nameWithoutExtension}_$timestamp.yml")
+
+        file.copyTo(backupFile, overwrite = true)
+        Logger.info("Created backup: ${backupFile.name}")
     }
 
     /**
@@ -150,8 +218,9 @@ object ConfigManager {
                 // 递归加载嵌套配置
                 val sectionValue = (prop as KProperty<*>).getter.call(instance)
                 if (sectionValue != null) {
-                    val nestedNeedsSave = loadConfig(sectionValue, yaml.getConfigurationSection(path) 
-                        ?: yaml.createSection(path))
+                    val nestedNeedsSave = loadConfig(sectionValue, (yaml.getConfigurationSection(path)
+                        ?: yaml.createSection(path)) as YamlConfiguration
+                    )
                     needsSave = needsSave || nestedNeedsSave
                 }
             }
@@ -195,7 +264,7 @@ object ConfigManager {
                 val sectionValue = (prop as KProperty<*>).getter.call(instance)
                 if (sectionValue != null) {
                     val sectionYaml = yaml.getConfigurationSection(path) ?: yaml.createSection(path)
-                    saveConfig(sectionValue, sectionYaml)
+                    saveConfig(sectionValue, sectionYaml as YamlConfiguration)
                 }
             }
         }
