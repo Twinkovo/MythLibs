@@ -96,31 +96,68 @@ object ConfigManager {
         return File(path, "${config.name}.yml")
     }
 
-    private fun loadConfig(instance: Any, yaml: YamlConfiguration) {
+    private fun loadConfig(instance: Any, yaml: YamlConfiguration): Boolean {
+        var needsSave = false
+
         for (prop in instance::class.memberProperties) {
             val value = prop.findAnnotation<ConfigValue>()
             if (value != null) {
-                // Load and validate value
-                // 加载并验证值
                 val path = value.path.ifEmpty { prop.name }
+                
                 if (yaml.contains(path)) {
+                    // Validate existing value
+                    // 验证现有值
                     val loadedValue = yaml.get(path)
                     if (!validateValue(loadedValue, value, prop)) {
                         Logger.warn("Invalid value for ${prop.name} in config: $loadedValue")
+                        // If validation fails and it's required, set default value
+                        // 如果验证失败且该值是必需的，设置默认值
+                        if (value.required) {
+                            val defaultValue = (prop as KProperty<*>).getter.call(instance)
+                            yaml.set(path, defaultValue)
+                            needsSave = true
+                            Logger.info("Set default value for ${prop.name}: $defaultValue")
+                        }
+                    }
+                } else {
+                    // Value missing, set default if required
+                    // 值缺失，如果是必需的则设置默认值
+                    if (value.required) {
+                        val defaultValue = (prop as KProperty<*>).getter.call(instance)
+                        yaml.set(path, defaultValue)
+                        if (value.comment.isNotEmpty()) {
+                            setComments(yaml, path, value.comment)
+                        }
+                        needsSave = true
+                        Logger.info("Added missing required value for ${prop.name}: $defaultValue")
                     }
                 }
             }
 
             val section = prop.findAnnotation<ConfigSection>()
             if (section != null) {
-                // Load nested section
-                // 加载嵌套配置节
                 val path = section.path.ifEmpty { prop.name }
                 if (!yaml.contains(path)) {
                     yaml.createSection(path)
+                    if (section.comment.isNotEmpty()) {
+                        setComments(yaml, path, section.comment)
+                    }
+                    needsSave = true
+                    Logger.info("Created missing section: $path")
+                }
+
+                // Recursively load nested configuration
+                // 递归加载嵌套配置
+                val sectionValue = (prop as KProperty<*>).getter.call(instance)
+                if (sectionValue != null) {
+                    val nestedNeedsSave = loadConfig(sectionValue, yaml.getConfigurationSection(path) 
+                        ?: yaml.createSection(path))
+                    needsSave = needsSave || nestedNeedsSave
                 }
             }
         }
+
+        return needsSave
     }
 
     private fun saveConfig(instance: Any, yaml: YamlConfiguration) {
@@ -128,22 +165,21 @@ object ConfigManager {
         // 如果存在则添加文件头注释
         val config = instance::class.findAnnotation<Config>()
         if (config != null && config.header.isNotEmpty()) {
-            // Use setComments instead of deprecated header method
-            // 使用setComments替代已弃用的header方法
-            yaml.setComments(null, config.header.toList())
+            // Use root path (empty string) for header comments
+            // 使用根路径（空字符串）设置头部注释
+            yaml.setComments("", config.header.toList())
         }
 
         for (prop in instance::class.memberProperties) {
             val value = prop.findAnnotation<ConfigValue>()
             if (value != null) {
                 val path = value.path.ifEmpty { prop.name }
-                if (!yaml.contains(path) && value.required) {
-                    // Set default value and comments
-                    // 设置默认值和注释
-                    yaml.set(path, (prop as KProperty<*>).getter.call(instance))
-                    if (value.comment.isNotEmpty()) {
-                        setComments(yaml, path, value.comment)
-                    }
+                // Always save current values to ensure config is up to date
+                // 始终保存当前值以确保配置是最新的
+                val currentValue = (prop as KProperty<*>).getter.call(instance)
+                yaml.set(path, currentValue)
+                if (value.comment.isNotEmpty()) {
+                    setComments(yaml, path, value.comment)
                 }
             }
 
@@ -152,6 +188,14 @@ object ConfigManager {
                 val path = section.path.ifEmpty { prop.name }
                 if (section.comment.isNotEmpty()) {
                     setComments(yaml, path, section.comment)
+                }
+                
+                // Recursively save nested configuration
+                // 递归保存嵌套配置
+                val sectionValue = (prop as KProperty<*>).getter.call(instance)
+                if (sectionValue != null) {
+                    val sectionYaml = yaml.getConfigurationSection(path) ?: yaml.createSection(path)
+                    saveConfig(sectionValue, sectionYaml)
                 }
             }
         }
