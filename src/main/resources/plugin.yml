@@ -1,0 +1,7 @@
+name: MythLibs
+version: ${version}
+main: com.twinkovo.mythLibs.MythLibs
+api-version: '1.21'
+authors: [Twinkovo]
+description: A powerful library plugin for Minecraft servers
+website: https://github.com/Twinkovo/MythLibs

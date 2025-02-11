@@ -4,39 +4,57 @@ plugins {
 }
 
 group = "com.twinkovo"
-version = "1.0.0-SNAPSHOT"
+version = "1.0.0"
 
 repositories {
     mavenCentral()
-    maven("https://repo.papermc.io/repository/maven-public/") {
-        name = "papermc-repo"
-    }
-    maven("https://oss.sonatype.org/content/groups/public/") {
-        name = "sonatype"
-    }
+    maven("https://hub.spigotmc.org/nexus/content/repositories/snapshots/")
+    maven("https://oss.sonatype.org/content/repositories/snapshots")
+    maven("https://repo.papermc.io/repository/maven-public/")
 }
 
 dependencies {
+    // Kotlin
+    implementation(kotlin("stdlib"))
+    implementation(kotlin("reflect"))
+
+    // Paper API
     compileOnly("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
-    implementation("net.kyori:adventure-api:4.15.0")
-    implementation("net.kyori:adventure-text-minimessage:4.15.0")
+
+    // Adventure (for text components)
+    implementation("net.kyori:adventure-api:4.18.0")
+    implementation("net.kyori:adventure-text-minimessage:4.18.0")
+
+    // Configuration
+    implementation("org.yaml:snakeyaml:2.3")
 }
 
-val targetJavaVersion = 21
-kotlin {
-    jvmToolchain(targetJavaVersion)
-}
-
-tasks.build {
-    dependsOn("shadowJar")
-}
-
-tasks.processResources {
-    val props = mapOf("version" to version)
-    inputs.properties(props)
-    filteringCharset = "UTF-8"
-    filesMatching("paper-plugin.yml") {
-        expand(props)
+tasks {
+    compileKotlin {
+        kotlinOptions.jvmTarget = "21"
+    }
+    
+    compileTestKotlin {
+        kotlinOptions.jvmTarget = "21"
+    }
+    
+    processResources {
+        filesMatching("plugin.yml") {
+            expand(project.properties)
+        }
+    }
+    
+    shadowJar {
+        archiveClassifier.set("")
+        archiveVersion.set(project.version.toString())
+        
+        // Relocate dependencies to avoid conflicts
+        relocate("kotlin", "com.twinkovo.mythlibs.lib.kotlin")
+        relocate("org.yaml.snakeyaml", "com.twinkovo.mythlibs.lib.snakeyaml")
+        relocate("net.kyori", "com.twinkovo.mythlibs.lib.kyori")
+    }
+    
+    build {
+        dependsOn(shadowJar)
     }
 }
