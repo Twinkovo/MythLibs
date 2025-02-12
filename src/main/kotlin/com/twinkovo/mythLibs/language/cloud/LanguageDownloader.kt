@@ -38,7 +38,7 @@ object LanguageDownloader {
      * @param targetFile The target file to save to
      *                   要保存到的目标文件
      * @return CompletableFuture<Boolean> indicating success
-     *         表示成功的CompletableFuture<Boolean>
+     *         表示成功的 CompletableFuture<Boolean>
      */
     fun downloadLanguageFile(annotation: Language, targetFile: File): CompletableFuture<Boolean> {
         if (annotation.cloudUrl.isEmpty()) {

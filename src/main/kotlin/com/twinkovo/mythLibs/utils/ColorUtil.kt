@@ -1,7 +1,6 @@
 package com.twinkovo.mythLibs.utils
 
 import net.kyori.adventure.text.Component
-import net.kyori.adventure.text.format.TextColor
 import net.kyori.adventure.text.minimessage.MiniMessage
 import java.awt.Color
 import kotlin.math.sin
